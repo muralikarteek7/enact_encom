@@ -1,498 +1,130 @@
-# ENACT: Embodied Cognition through World Modeling from Egocentric Interaction
+# Fine-Tuning Qwen2.5-VL-7B on ENACT
 
 <!-- Badges -->
 <div align="center">
 
 [![Homepage](https://img.shields.io/badge/🏠-Homepage-blue.svg)](https://enact-embodied-cognition.github.io/)
 [![arXiv](https://img.shields.io/badge/arXiv-2511.20937-b31b1b?logo=arxiv&logoColor=white)](https://arxiv.org/abs/2511.20937)
-[![PDF](https://img.shields.io/badge/📄-PDF-0e8a16.svg)](https://enact-embodied-cognition.github.io/enact.pdf)
 [![Dataset](https://img.shields.io/badge/🤗-Dataset-yellow.svg)](https://huggingface.co/datasets/MLL-Lab/ENACT)
 
 </div>
 
-<p align="center">
-  <a href="https://qinengwang-aiden.github.io/">Qineng Wang<sup>1*</sup></a>, 
-  <a href="https://wenlong.page/">Wenlong Huang<sup>2*</sup></a>, 
-  <a href="https://yu-bryan-zhou.github.io/">Yu Zhou<sup>3</sup></a>, 
-  <a href="https://hang-yin.github.io/">Hang Yin<sup>2</sup></a>, 
-  <a href="https://www.linkedin.com/in/tianwei-bao-625b67232/">Tianwei Bao<sup>1</sup></a>, 
-  <a href="https://www.linkedin.com/in/jianwen-lyu-ba9a11329/">Jianwen Lyu<sup>1</sup></a>, 
-  <a href="https://www.weiyuliu.com/">Weiyu Liu<sup>2</sup></a>
-</p>
-<p align="center">
-  <a href="https://ruohanzhang.com/">Ruohan Zhang<sup>2†</sup></a>, 
-  <a href="https://jiajunwu.com/">Jiajun Wu<sup>2†</sup></a>, 
-  <a href="https://profiles.stanford.edu/fei-fei-li">Li Fei-Fei<sup>2†</sup></a>, 
-  <a href="https://limanling.github.io/">Manling Li<sup>1†</sup></a>
-</p>
+This repo fine-tunes [Qwen2.5-VL-7B-Instruct](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct) on the **ENACT ordering task** (predict the correct order of egocentric future states) using QLoRA, and runs inference on Linux/CUDA. The model outputs an ordering for each QA instance, which the `enact eval` command scores for task and pairwise accuracy.
 
-<p align="center">*Equal contribution, †Equal advising</p>
-<p align="center"><sup>1</sup>Northwestern University, <sup>2</sup>Stanford University, <sup>3</sup>UCLA</p>
+## Results
 
----
+Our QLoRA fine-tuned Qwen2.5-VL-7B (team **encom**) ranked **#1** on both the dev and test leaderboards, a large jump over the un-tuned baseline:
 
-**ENACT** is a benchmark that evaluates embodied cognition through world modeling from egocentric interaction. It is designed to be simple and have a scalable dataset for evaluating forward and inverse dynamics in embodied AI systems.
+| Model | Split | Task Accuracy ↑ | Pairwise Accuracy ↑ |
+|-------|-------|-----------------|---------------------|
+| Qwen2.5-VL-7B (baseline, no fine-tuning) | dev | 9.93% | 33.45% |
+| **Qwen2.5-VL-7B + LoRA (ours)** | **dev** | **97.57%** | **99.06%** |
+| **Qwen2.5-VL-7B + LoRA (ours)** | **test** | **94.61%** | **98.39%** |
 
-The benchmark tests models on their ability to:
-- **Forward World Modeling**: Predict the correct sequence of future states given a current state and a series of actions
-- **Inverse World Modeling**: Infer the correct sequence of actions that led from an initial state to a sequence of observed future states
+<details>
+<summary>Leaderboard standings (team encom, rank #1)</summary>
+
+| Split | Team | Rank | Task Accuracy ↑ | Pairwise Accuracy ↑ |
+|-------|------|------|-----------------|---------------------|
+| Dev | encom (Qwen2.5-VL) | 1 | 0.9757 | 0.9906 |
+| Test | encom (Qwen2.5-VL-7B LoRA Fine-tuned) | 1 | 0.9461 | 0.9839 |
+
+</details>
 
 ---
 
 ## Table of Contents
 
-- [Environment Installation](#environment-installation)
-- [Data Download](#data-download)
-- [Data Evaluation](#data-evaluation)
-- [Optional: Generate Data Yourself](#optional-generate-data-yourself)
-  - [Pipeline Overview](#pipeline-overview)
-  - [Stage 0: Collect Robot Data](#stage-0-optional-collect-robot-data--raw_hdf5)
-  - [Stage 1: Replay HDF5](#stage-1-optional-replay-hdf5--replayed_activities)
-  - [Stage 1.5: Extract Frames](#stage-15-extract-frames-from-videos--replayed_activitiesexternal_sensor1)
-  - [Stage 2: Segment Activities](#stage-2-segment-activities--segmented_activities)
-  - [Stage 3: Generate QA](#stage-3-generate-qa-tasks--qaenact_orderingjsonl)
-- [Simulator Installation](#simulator-installation-optional)
+- [Results](#results)
+- [Setup](#setup-linux-gpu-cuda-124)
+- [Get the Data](#get-the-data)
+- [Fine-Tuning](#fine-tuning-linuxgpu)
+- [Use the Pre-Trained Adapter](#use-the-pre-trained-adapter-skip-fine-tuning)
+- [Inference](#inference-linuxgpu)
+- [Evaluating Splits](#evaluating-splits)
+- [Citation](#citation)
 
 ---
 
-## Environment Installation
+## Setup: Linux GPU (CUDA 12.4)
 
-> **⚠️ IMPORTANT:** If you plan to use the **BEHAVIOR-1K simulator** for data generation (replaying HDF5 files), **skip steps 2** and jump directly to [Simulator Installation](#simulator-installation-optional) section below. The simulator setup will create its own conda environment with all required dependencies. After installing with the simulator env, get back to **step 3**.
-
-### 1. Clone the Repository
+All pinned versions live in [requirements.txt](requirements.txt) (verified on A100, CUDA 12.4, driver 565.57). Use a fresh conda env.
 
 ```bash
-git clone git@github.com:QinengWang-Aiden/ENACT.git
-cd ENACT/
-```
+# 1. Create env — Python 3.11 is required because numpy 2.4.x (pinned in
+#    requirements.txt) drops support for 3.10.
+conda create -n enact-qwen python=3.11 -y
+conda activate enact-qwen
 
-### 2. Create Conda Environment (Skip if using simulator)
+# 2. PyTorch 2.5.1 + CUDA 12.4 (must be installed before flash-attn)
+pip install torch==2.5.1+cu124 torchvision==0.20.1+cu124 torchaudio==2.5.1+cu124 triton==3.1.0 \
+    --index-url https://download.pytorch.org/whl/cu124
 
-Create a new conda environment named `enact` with Python 3.10:
+# 3. Flash Attention 2 — builds from source, requires torch + the build tools
+#    below already installed (--no-build-isolation skips pip's sandbox).
+pip install psutil packaging ninja wheel setuptools
+pip install flash-attn==2.8.3 --no-build-isolation
 
-```bash
-conda create -n enact python=3.10 -y
-conda activate enact
-```
+# 4. Remaining deps (Unsloth, HF stack, qwen-vl-utils, etc.)
+#    PYTHONNOUSERSITE=1 prevents pip from treating packages already in
+#    ~/.local/lib/python3.10/site-packages as "already satisfied" and silently
+#    skipping the env install. Skip the prefix if you have a clean ~/.local.
+PYTHONNOUSERSITE=1 pip install -r requirements.txt
 
-### 3. Install the ENACT Package
-
-Install the package in editable mode:
-
-```bash
+# 5. Install the ENACT package itself (provides the `enact` CLI used for scoring)
 pip install -e .
-# Verify installation
 enact --help
+
+# 6. Remove torchao if it was pulled in transitively (see note below)
+pip uninstall -y torchao
 ```
+
+> **GPU note:** the pinned wheels target CUDA 12.4. If your driver supports a different CUDA toolchain, swap the `+cu124` tags and the `--index-url` accordingly — but you may then need to rebuild `flash-attn` and verify `unsloth` compatibility.
+
+> **⚠️ Do not `pip install torchao` in this env.** `unsloth-zoo` lists `torchao>=0.13.0` as a dependency, but those builds target torch ≥ 2.6. Installing torchao here pulls a cascade of upgrades (torch → 2.12, transformers → 5.10, triton, sympy) that breaks the pinned stack. `torchao` is **not needed** for LoRA training or inference — leave it uninstalled and ignore the `unsloth-zoo requires torchao>=0.13.0` resolver warning. Two failure modes you may hit if it slips in:
+>
+> - `AttributeError: module 'torch' has no attribute 'int1'` — torchao itself loading against torch < 2.6.
+> - `RuntimeError: operator torchvision::nms does not exist` — torch got upgraded but torchvision didn't (ABI mismatch).
+>
+> Both surface as a misleading `Could not import module 'Qwen2_5_VLForConditionalGeneration'` — read the real error higher in the traceback. Recovery: restore the pinned trio (matches torchvision) and remove torchao:
+> ```bash
+> pip uninstall -y torchao
+> pip install torch==2.5.1+cu124 torchvision==0.20.1+cu124 torchaudio==2.5.1+cu124 triton==3.1.0 \
+>     --index-url https://download.pytorch.org/whl/cu124
+> pip install transformers==5.5.0
+> ```
 
 ---
 
-## Data Download
+## Get the Data
 
-By default, ENACT downloads the **ENACT QA dataset** which contains question-answer pairs with images for VLMs evaluation. You can optionally download additional datasets like HDF5 files, replayed activities, and segmented activities.
-
-### Quick Start: Download ENACT QA Dataset
+The QA dataset (questions + images) must be downloaded before training or inference.
 
 ```bash
-# Download only ENACT QA
+# Downloads the ENACT QA dataset (~17 GB) to data/QA/ by default
 python scripts/helpers/download_dataset.py
-# Download ALL datasets
-python scripts/helpers/download_dataset.py --all
 ```
 
-This downloads the QA dataset (approximately 17 GB) to `data/QA/` by default.
-
-<details>
-<summary>Complete options</summary>
-
-```bash
-# Download only ENACT QA dataset (default)
-python scripts/helpers/download_dataset.py --output-dir ./data
-
-# Skip ENACT QA dataset if you don't need it
-python scripts/helpers/download_dataset.py --no-enact
-
-# Download HDF5 dataset (raw simulation recordings)
-python scripts/helpers/download_dataset.py --hdf5
-
-# Download replayed activities (extracted scene graphs and frames)
-python scripts/helpers/download_dataset.py --replayed
-
-# Download segmented activities (segmented scene graphs)
-python scripts/helpers/download_dataset.py --segmented
-```
-
-**Dataset Descriptions:**
-- **ENACT QA** (default, ~17 GB): Contains `enact_ordering.jsonl` with 8972 QA pairs and associated images for evaluation
-- **HDF5** (Optional): Raw simulation recordings from BEHAVIOR-1K simulator
-- **Replayed Activities** (Optional): Scene graphs and extracted frames from replayed HDF5 files
-- **Segmented Activities** (Optional): Segmented scene graphs with action boundaries identified
-
-</details>
-
-### Understanding the Downloaded Data Structure
-
-After downloading, your `data/` directory will contain:
+After this, your `data/` directory contains:
 
 ```
 data/
-├── QA/                              # ENACT QA dataset
-│   ├── enact_ordering.jsonl        # 8972 QA pairs
-│   └── images/                      # Associated images
-│       ├── forward_world_modeling_ordering_3_steps/
-│       ├── forward_world_modeling_ordering_4_steps/
-│       ├── ...
-│       ├── inverse_world_modeling_ordering_3_steps/
-│       └── ...
-├── raw_hdf5/                        # (Optional) Raw simulation data
-├── replayed_activities/             # (Optional) Extracted scene graphs
-└── segmented_activities/            # (Optional) Segmented frames
+├── QA/                              # default training QA
+│   ├── enact_ordering.jsonl         # QA pairs (id, images, question, gt_answer)
+│   └── images/
+├── QA_dev/                          # dev split (if provided)
+│   └── enact_ordering_dev.jsonl
+└── QA_test/                         # held-out test split (if provided)
+    └── enact_ordering_test.jsonl
 ```
+
+Each line in an `enact_ordering*.jsonl` is one question: an `id`, a list of `images` (first is the current state, the rest are shuffled future states), a `question` prompt, and the `gt_answer` ordering.
 
 ---
 
-## Data Evaluation
+## Fine-Tuning (Linux/GPU)
 
-### Understanding the Dataset Format
-
-Each line in `enact_ordering.jsonl` contains a QA instance with the following structure.
-
-**Key Fields:**
-- `id`: Unique identifier for this QA instance
-- `type`: Question type (forward/inverse world modeling with N steps)
-- `images`: List of image paths - first is current state, rest are shuffled future states
-- `question`: Full prompt with task description and actions
-- `gt_answer`: Ground truth ordering (e.g., `[2, 1]` means the correct order is image 2 then image 1)
-
-<details>
-<summary>Example input format</summary>
-
-```json
-{
-  "id": "task_name_type_hash",
-  "type": "forward_world_modeling_ordering_3_steps",
-  "task_name": "assembling_gift_baskets_1749468508582193",
-  "key_frame_ids": ["16084", "18290", "18501"],
-  "images": [
-    "QA/images/.../cur_state.png",
-    "QA/images/.../next_state_1.png",
-    "QA/images/.../next_state_2.png"
-  ],
-  "question": "You are a capable agent...",
-  "options": [],
-  "gt_answer": [2, 1]
-}
-```
-
-</details>
-
-### Preparing Your Model Output
-
-Your model should generate a JSONL file where each line contains the original fields plus an `answer` field.
-
-**Requirements:**
-- All fields except `answer` must match the input `enact_ordering.jsonl`
-- `answer` should be a **string** containing a parsable list (e.g., `"[2, 1]"` instead of `[2, 1]`)
-- **Recommended naming:** `enact_ordering_{model_name}.jsonl`
-
-<details>
-<summary>Example model output format</summary>
-
-```json
-{
-  "id": "task_name_type_hash",
-  "type": "forward_world_modeling_ordering_3_steps",
-  "task_name": "assembling_gift_baskets_1749468508582193",
-  "key_frame_ids": ["16084", "18290", "18501"],
-  "gt_answer": [2, 1],
-  "answer": "[2, 1]"
-}
-```
-
-</details>
-
-### Running Evaluation
-
-```bash
-# single file evaluation
-enact eval your_model_output.jsonl
-# batch file evaluation
-# the evaluator will look for files matching pattern "enact_ordering_*.jsonl"
-enact eval model_outputs_directory/
-```
-
-<details>
-<summary>Complete version with all options</summary>
-
-```bash
-# Specify custom data paths
-enact eval your_model_output.jsonl \
-  --segmented-data data/segmented_activities \
-  --raw-data data/replayed_activities \
-  --output-root data/evaluation
-
-# Enable detailed wrong case output
-enact eval your_model_output.jsonl --analyze-wrong-cases
-
-# Preview what would be evaluated without running
-enact eval your_model_output.jsonl --dry-run
-```
-
-**Arguments:**
-- `input_path`: Path to JSONL file or directory containing JSONL files
-- `--segmented-data`: Path to segmented activities (default: `data/segmented_activities`)
-- `--raw-data`: Path to replayed activities (default: `data/replayed_activities`)
-- `--output-root`: Where to save evaluation results (default: `data/evaluation`)
-- `--analyze-wrong-cases`: Generate detailed signatures for incorrect predictions
-- `--dry-run`: Show what would be evaluated without actually processing
-
-</details>
-
-### Understanding Evaluation Results
-
-After evaluation, results are saved to the output directory (default: `data/evaluation/`):
-
-```
-data/evaluation/
-├── batch_evaluation_summary.json   # Overall summary across all models
-├── meta_performance/               # Summary metrics per model
-│   └── enact_ordering_modelname.json
-├── detailed_eval/                  # Per-sample detailed results (JSONL)
-│   └── enact_ordering_modelname.jsonl
-└── signatures/                     # (If --analyze-wrong-cases enabled, JSONL)
-    └── enact_ordering_modelname.jsonl
-```
-
-**Note:** The evaluator extracts model name from the input filename. For example:
-- Input: `enact_ordering_gpt-4.jsonl` → Output files: `enact_ordering_gpt-4.json` / `.jsonl`
-- Input: `my_model_predictions.jsonl` → Model name: `my_model_predictions`
-
-#### Meta Performance File
-
-Contains aggregated metrics with overall and per-task-type breakdowns.
-
-**Key Metrics:**
-- `model_name`: Name of the model being evaluated (extracted from filename)
-- `overall_performance.overall`: Overall performance across all question types
-  - `count`: Total number of QA instances evaluated
-  - `task_accuracy`: Percentage of correctly ordered sequences (exact match)
-  - `pairwise_accuracy`: Percentage of correct pairwise orderings
-- `forward_world_modeling` / `inverse_world_modeling`: Breakdown by dynamics type
-
-<details>
-<summary>Example JSON output</summary>
-
-```json
-{
-  "model_name": "human",
-  "overall_performance": {
-    "overall": {
-      "count": 8972,
-      "task_accuracy": 0.8859786000891663,
-      "pairwise_accuracy": 0.9492396096497747
-    },
-    "forward_world_modeling": {
-      "count": 4486,
-      "task_accuracy": 0.879402585822559,
-      "pairwise_accuracy": 0.9481513916311064
-    },
-    "inverse_world_modeling": {
-      "count": 4486,
-      "task_accuracy": 0.8925546143557735,
-      "pairwise_accuracy": 0.9503278276684429
-    }
-  }
-}
-```
-
-</details>
-
-#### Detailed Evaluation File
-
-Contains per-sample results with individual predictions and correctness (JSONL format, one JSON object per line).
-
-**Key Fields:**
-- `eval_metrics`: Multiple accuracy measures
-  - `exact_match`: Whether the full sequence matches exactly
-  - `semantic_match`: Whether the meaning matches (allows reordering of simultaneous events)
-  - `task_accuracy`: Task-level correctness (same as exact_match)
-  - `pairwise_accuracy`: Percentage of correct pairwise orderings (partial credit)
-- `ground_truth`: Correct ordering
-- `model_answer`: Model's predicted ordering
-- `raw_answer`: Raw string output from the model
-- `wrong_case_analysis`: Detailed breakdown (always included, even for correct answers)
-
-<details>
-<summary>Example JSONL entry</summary>
-
-```json
-{
-  "id": "assembling_gift_baskets_1749468508582193_forward_dynamics_ordering_3_steps_5dc7cfd5",
-  "task_name": "assembling_gift_baskets_1749468508582193",
-  "type": "forward_dynamics_ordering_3_steps",
-  "eval_metrics": {
-    "exact_match": false,
-    "semantic_match": false,
-    "task_accuracy": false,
-    "pairwise_accuracy": 0.5
-  },
-  "ground_truth": [2, 1],
-  "model_answer": [1, 2],
-  "raw_answer": "[1, 2]",
-  "wrong_case_analysis": {
-    "id": "...",
-    "type": "...",
-    "key_frame_ids": ["16084", "18290", "18501"],
-    "gt_answer": [2, 1],
-    "parsed_answer": [1, 2],
-    "correct_signatures": [["edge_add_..."], ["edge_remove_..."]],
-    "input_signatures": [["edge_remove_...", "edge_add_..."], ["edge_add_..."]],
-    "correct_natural_language": ["Action 1 description", "Action 2 description"],
-    "input_natural_language": ["Wrong action 1", "Wrong action 2"]
-  }
-}
-```
-
-</details>
-
-#### Wrong Case Signatures (Optional)
-
-When `--analyze-wrong-cases` is enabled, generates detailed analysis with action signatures (JSONL format, one JSON object per line).
-
-**Signature Analysis Fields:**
-- `correct_signatures`: The actual state changes at each step (as edge operations)
-- `input_signatures`: The state changes predicted by the model
-- `correct_natural_language`: Human-readable description of correct transitions
-- `input_natural_language`: Human-readable description of model's predictions
-- `equal_length`: Whether model output has the correct number of steps
-
-This file helps you understand **why** the model made mistakes by comparing the predicted state transitions with the ground truth.
-
-<details>
-<summary>Example JSONL entry</summary>
-
-```json
-{
-  "id": "assembling_gift_baskets_1749468508582193_forward_dynamics_ordering_3_steps_5dc7cfd5",
-  "type": "forward_dynamics_ordering_3_steps",
-  "task_name": "assembling_gift_baskets_1749468508582193",
-  "key_frame_ids": ["16084", "18290", "18501"],
-  "gt_answer": [2, 1],
-  "parsed_answer": [1, 2],
-  "raw_answer": "[1, 2]",
-  "eval_metrics": {
-    "exact_match": false,
-    "semantic_match": false,
-    "task_accuracy": false,
-    "pairwise_accuracy": 0.5
-  },
-  "equal_length": true,
-  "correct_signatures": [
-    ["edge_add_the robot r1_the butter cookie_LeftGrasping"],
-    ["edge_remove_the butter cookie_the coffee table_OnTop"]
-  ],
-  "input_signatures": [
-    ["edge_remove_the butter cookie_the coffee table_OnTop", "edge_add_the robot r1_the butter cookie_LeftGrasping"],
-    ["edge_add_the butter cookie_the coffee table_OnTop"]
-  ],
-  "correct_natural_language": [
-    "The robot r1 changes to be using the left gripper to grasp the butter cookie.",
-    "The butter cookie stopped being on top of and touching the coffee table."
-  ],
-  "input_natural_language": [
-    "The robot r1 changes to be using the left gripper to grasp the butter cookie. The butter cookie is no longer on top of and touching the coffee table.",
-    "The butter cookie transitions to be on top of and touching the coffee table."
-  ]
-}
-```
-
-</details>
-
-#### Batch Evaluation Summary (When Evaluating Multiple Models)
-
-When evaluating a directory with multiple model outputs, a `batch_evaluation_summary.json` is created. This provides a quick comparison across all evaluated models.
-
-<details>
-<summary>Example JSON output</summary>
-
-```json
-{
-  "total_processed": 2,
-  "successful": 2,
-  "failed": 0,
-  "results": [
-    {
-      "model_name": "gpt-5-mini-2025-08-07",
-      "status": "success",
-      "overall_stats": {
-        "count": 8972,
-        "task_accuracy": 0.3695,
-        "pairwise_accuracy": 0.6474
-      }
-    },
-    {
-      "model_name": "human",
-      "status": "success",
-      "overall_stats": {
-        "count": 8972,
-        "task_accuracy": 0.8860,
-        "pairwise_accuracy": 0.9492
-      }
-    }
-  ]
-}
-```
-
-</details>
-
-### Example Evaluation Workflow
-
-```bash
-# 1. Download the ENACT QA dataset
-python scripts/helpers/download_dataset.py
-
-# 2. Run your model on data/QA/enact_ordering.jsonl to generate predictions
-# Your model should output: enact_ordering_mymodel.jsonl
-
-# 3. Evaluate your predictions
-enact eval enact_ordering_mymodel.jsonl --analyze-wrong-cases
-
-# 4. Check results
-cat data/evaluation/meta_performance/enact_ordering_mymodel.json
-
-# 5. For batch evaluation of multiple models
-enact eval model_outputs_directory/ --analyze-wrong-cases
-cat data/evaluation/batch_evaluation_summary.json
-```
-
----
-
-## Fine-Tuning Qwen2.5-VL-7B on ENACT
-
-This repo includes scripts to fine-tune [Qwen2.5-VL-7B-Instruct](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct) on the ENACT ordering task using QLoRA, and to run inference on both Linux GPU and Apple Silicon.
-
-### Baseline (no fine-tuning)
-
-| Metric | Score |
-|--------|-------|
-| Task Accuracy | 9.93% |
-| Pairwise Accuracy | 33.45% |
-
-### Setup: Linux GPU (CUDA 12.8)
-
-```bash
-# PyTorch 2.7 + CUDA 12.8
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-
-# Unsloth for QLoRA fine-tuning
-pip install unsloth unsloth_zoo
-pip install trl datasets pillow qwen-vl-utils
-
-# HuggingFace inference deps
-pip install transformers accelerate peft safetensors
-```
-
-### Fine-Tuning (Linux/GPU — RTX 5090 32GB)
+Tuned for a 32GB GPU (e.g. RTX 5090).
 
 ```bash
 # Full training run (3 epochs, batch=8, LoRA rank=64)
@@ -504,536 +136,147 @@ python scripts/finetune_qwen25vl.py \
     --limit 100 --epochs 1 --output ./test_adapter
 ```
 
-Key hyperparameters (tuned for 32GB VRAM):
+Key hyperparameters:
 - Base model: `unsloth/Qwen2.5-VL-7B-Instruct-bnb-4bit`
 - LoRA rank: 64, alpha: 64
 - Batch size: 8 (effective 16 with grad accumulation)
 - Learning rate: 2e-4, cosine decay, 3 epochs
 
-### Inference: Linux/GPU (after fine-tuning)
+The adapter is written to `--output` (e.g. `./lora_enact_ordering/`), along with a `split_ids.json` recording the train/val split.
 
-`scripts/inference_hf.py` runs inference using HuggingFace transformers + PEFT. Works on Linux (CUDA) and Mac (MPS/Apple Silicon).
+---
+
+## Use the Pre-Trained Adapter (skip fine-tuning)
+
+A ready-to-use LoRA adapter is hosted at [gkarteek99/enact-qwen25vl-lora](https://huggingface.co/gkarteek99/enact-qwen25vl-lora). Download it into `./lora_enact_ordering` so every command below works unchanged (this also pulls `train_config.json` and `split_ids.json`, which the script reads locally):
 
 ```bash
-# Fine-tuned model (loads LoRA adapter, merges weights)
-python scripts/inference_hf.py \
-    --adapter ./lora_enact_ordering \
-    --output enact_finetuned.jsonl
-
-# Base model (no adapter — for baseline comparison)
-python scripts/inference_hf.py \
-    --output enact_base.jsonl
-
-# Quick test (first 50 samples)
-python scripts/inference_hf.py \
-    --adapter ./lora_enact_ordering \
-    --limit 50 --output test.jsonl
-
-# Multi-GPU sharding (2 GPUs → ~2x faster)
-python scripts/inference_hf.py \
-    --adapter ./lora_enact_ordering \
-    --run-shards 2 --output enact_finetuned.jsonl
+huggingface-cli download gkarteek99/enact-qwen25vl-lora \
+    --local-dir ./lora_enact_ordering \
+    --exclude "checkpoint-*/*"   # skip intermediate checkpoints; keep only the final adapter
 ```
 
-**Key flags:**
+Then run inference with `--adapter ./lora_enact_ordering` exactly as shown below.
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--model` | `Qwen/Qwen2.5-VL-7B-Instruct` | Base model ID |
-| `--adapter` | None | Path to LoRA adapter directory |
-| `--input` | `data/QA/enact_ordering.jsonl` | Input QA file |
-| `--data-root` | `data/` | Root for resolving image paths |
-| `--output` | auto-named | Output JSONL file |
-| `--limit` | None | Cap number of samples (for testing) |
-| `--id-file` | None | JSON with `train`/`val` split IDs |
-| `--split` | None | `train` or `val` — filter by split |
-| `--run-shards` | None | Launch N parallel GPU processes |
-| `--prefetch` | 4 | CPU workers for image prefetch |
+> You can also pass the repo ID straight to `--adapter` (`--adapter gkarteek99/enact-qwen25vl-lora`) — PEFT fetches the weights directly. In that case the script can't read `train_config.json` locally and defaults to `--image-size 336` (which matches this adapter's training), and `--split` evaluation won't have `split_ids.json`. Downloading locally avoids both caveats.
 
-### Evaluating Train vs Val Split (Measuring Generalization)
+---
 
-After fine-tuning, `split_ids.json` is saved in the adapter directory. Use it to evaluate train and val separately:
+## Inference (Linux/GPU)
 
-```bash
-# Run on validation split only (unseen during training)
-python scripts/inference_hf.py \
-    --adapter ./lora_enact_ordering \
-    --id-file ./lora_enact_ordering/split_ids.json \
-    --split val \
-    --output enact_val.jsonl
+`scripts/inference_hf.py` runs inference using HuggingFace transformers + PEFT. It loads the base Qwen2.5-VL model, optionally applies a LoRA adapter, generates an ordering for each QA instance, and writes an `enact eval`-ready JSONL.
 
-# Run on train split (expect high accuracy = model learned the task)
-python scripts/inference_hf.py \
-    --adapter ./lora_enact_ordering \
-    --id-file ./lora_enact_ordering/split_ids.json \
-    --split train \
-    --output enact_train.jsonl
+### How the paths work
 
-# Evaluate both
-enact eval enact_val.jsonl
-enact eval enact_train.jsonl
-```
+The script reads **two** path inputs and produces **one** output:
 
-Val accuracy = true generalization. Large train/val gap = overfitting.
+| You provide | Flag | What it points to |
+|-------------|------|-------------------|
+| **QA file** | `--input` | The `.jsonl` of questions to answer (e.g. `data/QA_test/enact_ordering_test.jsonl`). Defaults to `data/QA/enact_ordering.jsonl`. |
+| **Data root** | `--data-root` | The folder the image paths inside the QA file are resolved against. Use `data` whenever your images live under `data/…`. |
+| **Output** | `--output` | The predictions file to write. **Relative paths are written to your current directory** (the repo root if you run from there). If omitted, it auto-names to `enact_ordering_<model>.jsonl`. |
 
-### Run on Dev / Test Sets
+> ⚠️ `--output` opens in **overwrite** (`w`) mode by default — re-running replaces the file. Pass `--resume` to keep existing predictions and continue an interrupted run (it skips IDs already present). On completion the script prints the final `Output:` path and the exact `enact eval …` command to score it.
+
+### Step-by-step
 
 ```bash
-# Dev set evaluation
+# 1. Smoke test first (first 50 samples) — confirms the env loads before a full run.
+#    Writes ./test.jsonl in the current directory.
 python scripts/inference_hf.py \
     --adapter ./lora_enact_ordering \
-    --input data/QA_dev/enact_ordering_dev.jsonl \
+    --input data/QA_test/enact_ordering_test.jsonl \
     --data-root data \
-    --output enact_dev.jsonl
+    --limit 50 \
+    --output test.jsonl
 
-# Test set (for leaderboard submission)
+# 2. Full run on the test set. Writes ./enact_test.jsonl (takes a while).
 python scripts/inference_hf.py \
     --adapter ./lora_enact_ordering \
     --input data/QA_test/enact_ordering_test.jsonl \
     --data-root data \
     --output enact_test.jsonl
 
-enact eval enact_dev.jsonl
+# 3. Score the predictions. Writes results under data/evaluation/.
 enact eval enact_test.jsonl
 ```
 
-> **Note:** The dev set (`QA_dev`) shares IDs with the training QA file (`QA`). Dev accuracy therefore reflects memorization, not generalization. Use the val split from `split_ids.json` or the held-out test set for true evaluation.
+After step 3, the accuracy summary is at `data/evaluation/meta_performance/enact_ordering_test.json` and per-sample results at `data/evaluation/detailed_eval/enact_ordering_test.jsonl`.
 
-### Inference: Apple Silicon (MLX)
-
-```bash
-pip install mlx-vlm mlx-lm
-
-# Base model (fast, 3-5s/sample on M-series)
-python scripts/inference_mlx.py --output enact_base_mlx.jsonl
-
-# After fine-tuning: convert adapter → MLX, then run inference
-# See scripts/convert_adapter_to_mlx.py for the conversion pipeline
-```
-
-### Fine-Tuning on Mac (Apple Silicon — Experimental)
-
-`scripts/finetune_mac.py` runs QLoRA fine-tuning locally on Mac using HuggingFace + MPS.
-Useful for quick experiments; for serious training use a cloud GPU (RTX 5090 ≈ 100x faster).
+### Other run modes
 
 ```bash
-pip install transformers accelerate peft trl datasets pillow qwen-vl-utils safetensors
-
-# Quick test (10 samples, ~5 minutes on M3/M4/M5 32GB)
-python scripts/finetune_mac.py --limit 10 --epochs 1 --output ./test_adapter_mac
-
-# Small experiment (~1 hour, 200 samples)
-python scripts/finetune_mac.py --limit 200 --epochs 2 --output ./lora_mac_200
-
-# Full dataset (not recommended — very slow on Mac)
-python scripts/finetune_mac.py --output ./lora_mac_full
-```
-
-Key differences from Linux script:
-- Uses `float16` (MPS does NOT support bfloat16)
-- LoRA rank 16 (vs 64) to fit in 32GB unified memory
-- Batch size 1 with grad accumulation 8 (effective batch = 8)
-- Standard `adamw_torch` optimizer (8-bit optimizer not available on MPS)
-- `dataloader_num_workers=0` (MPS requires no forking)
-
-After training, run val inference the same way:
-```bash
+# Resume an interrupted run (keeps predictions already written, fills in the rest)
 python scripts/inference_hf.py \
-    --adapter ./lora_mac_200 \
-    --id-file ./lora_mac_200/split_ids.json \
-    --split val --output enact_val_mac.jsonl
-enact eval enact_val_mac.jsonl
-```
-
-### Transfer Fine-Tuned Weights to Mac
-
-```bash
-# 1. Download LoRA adapter from cloud
-scp -P <port> -r user@<ip>:~/ENACT/lora_enact_ordering/ ./
-
-# 2. Merge + convert to MLX (see scripts/convert_adapter_to_mlx.py)
-python scripts/convert_adapter_to_mlx.py \
     --adapter ./lora_enact_ordering \
-    --mlx-path ./fused_mlx_model
+    --input data/QA_test/enact_ordering_test.jsonl --data-root data \
+    --output enact_test.jsonl --resume
 
-# 3. Run inference on Mac
-python scripts/inference_mlx.py \
-    --model ./fused_mlx_model \
-    --output enact_finetuned_mlx.jsonl
+# Base model (no --adapter) — for baseline comparison
+python scripts/inference_hf.py \
+    --input data/QA_test/enact_ordering_test.jsonl --data-root data \
+    --output enact_base.jsonl
+
+# Default input (the full training QA file, data/QA/enact_ordering.jsonl)
+python scripts/inference_hf.py \
+    --adapter ./lora_enact_ordering \
+    --output enact_finetuned.jsonl
+
+# Multi-GPU sharding (2 GPUs → ~2x faster)
+python scripts/inference_hf.py \
+    --adapter ./lora_enact_ordering \
+    --input data/QA_test/enact_ordering_test.jsonl --data-root data \
+    --run-shards 2 --output enact_test.jsonl
 ```
+
+### Key flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--model` | `Qwen/Qwen2.5-VL-7B-Instruct` | Base model ID |
+| `--adapter` | None | Path to LoRA adapter directory (omit for base model) |
+| `--input` | `data/QA/enact_ordering.jsonl` | Input QA `.jsonl` file |
+| `--data-root` | `data/` | Root the QA file's image paths resolve against |
+| `--output` | auto-named | Output predictions JSONL (relative → current dir) |
+| `--resume` | off | Continue an existing output file instead of overwriting |
+| `--limit` | None | Cap number of samples (for testing) |
+| `--id-file` | None | JSON with `train`/`val`/`test` split IDs |
+| `--split` | None | `train`, `val`, or `test` — filter by split |
+| `--run-shards` | None | Launch N parallel GPU processes (one per GPU) |
+| `--prefetch` | 4 | CPU workers for image prefetch |
 
 ---
 
-## Optional: Generate Data Yourself
+## Evaluating Splits
 
-The ENACT dataset generation follows a multi-stage pipeline. **You can start from any stage** as we provide official intermediate datasets for each stage. Only **Stage 1** (replaying HDF5 files) requires the BEHAVIOR-1K simulator.
-
-### Pipeline Overview
-
-```
-Stage 0 (Optional): Collect Robot Data   → raw_hdf5/
-                                            ↓ (requires simulator)
-Stage 1 (Optional): Replay HDF5          → replayed_activities/ (mp4 + scene_graph)
-                                            ↓
-Stage 1.5:          Extract Frames        → replayed_activities/*/external_sensor1/
-                                            ↓
-Stage 2:            Segment Activities    → segmented_activities/ (key frames only)
-                                            ↓
-Stage 3:            Generate QA           → QA/enact_ordering.jsonl
-```
-
-**Official Data Sources:**
-- **raw_hdf5**: [Google Drive (Ours)](https://drive.google.com/file/d/1B3YTxlV5V7T8UqkY1V4ReF5jkuSu2qrs/view?usp=sharing) or [Behavior HuggingFace (29 tasks, 200 trajectories each)](https://huggingface.co/datasets/behavior-1k/2025-challenge-rawdata)
-- **replayed_activities**: [Google Drive](https://drive.google.com/file/d/19rkSTPZmm2eWfuro8juv3acimELgD-xb/view?usp=sharing)
-- **segmented_activities**: [Google Drive](https://drive.google.com/file/d/1sPS7Lxw-FBPcWJbh7hOaD-22OIet_QrR/view?usp=sharing)
-- **QA dataset**: [HuggingFace (default)](https://huggingface.co/datasets/Inevitablevalor/ENACT)
-
----
-
-### Stage 0 (Optional): Collect Robot Data → `raw_hdf5/`
-
-**Collect Your Own Data:** Please refer to [this tutorial](https://github.com/ChengshuLi/MoMaGen/blob/main/docs/tutorials/custom-tasks.md) for detailed information. ⚠️ This may require you to set up [GELLO](https://wuphilipp.github.io/gello_site/) or an additional environment.
-
-**Use Official Data Instead:**
-- **Option 1** - Our curated dataset (subset):
-  ```bash
-  python scripts/helpers/download_dataset.py --hdf5
-  ```
-- **Option 2** - Full HuggingFace dataset (29 tasks × 200 trajectories):
-  - Visit: https://huggingface.co/datasets/behavior-1k/2025-challenge-rawdata
-  - This is all available hdf5 datasets used in BEHAVIOR Challenge.
-
-**Output:** `data/raw_hdf5/` containing HDF5 simulation recordings
-
----
-
-### Stage 1 (Optional): Replay HDF5 → `replayed_activities/`
-
-**⚠️ Requires BEHAVIOR-1K Simulator** - See [Simulator Installation](#simulator-installation-optional) for setup.
-
-This stage replays HDF5 files in the simulator to extract:
-- Scene graphs (object relationships and states at each timestep)
-- MP4 video (egocentric camera view)
-
-**Run Replay (Single File):**
-```bash
-# After installing simulator
-python scripts/helpers/replay_hdf5.py --file data/raw_hdf5/task_name.hdf5 --output_dir data/replayed_activities
-```
-
-**Run Replay (Batch Mode - All Files):**
-```bash
-# Processes all HDF5 files in data/raw_hdf5/
-bash scripts/helpers/batch_replay_hdf5.sh
-```
-
-**Or Download Official Replayed Data:**
-```bash
-python scripts/helpers/download_dataset.py --replayed
-```
-
-**Output Structure:** `data/replayed_activities/`
-```
-replayed_activities/
-├── assembling_gift_baskets_1749468508582193/
-│   ├── external_sensor1.mp4       # Egocentric video
-│   └── scene_graph_0.json         # Scene graph data
-└── bringing_water_1750844141719178/
-    ├── external_sensor1.mp4
-    └── scene_graph_0.json
-```
-
----
-
-### Stage 1.5: Extract Frames from Videos → `replayed_activities/*/external_sensor1/`
-
-**No simulator required.** Extract PNG frames from the MP4 videos produced in Stage 1. **This step is required before segmentation.**
-
-**Input:** `data/replayed_activities/` with MP4 files
-
-**Extract Frames (Single Task):**
-```bash
-python scripts/helpers/frame_extraction.py --task_folder data/replayed_activities/assembling_gift_baskets_1749468508582193
-```
-
-**Extract Frames (Batch Mode - All Tasks):**
-```bash
-python scripts/helpers/frame_extraction.py --task_folder data/replayed_activities
-```
-
-**Skip Already Processed:**
-```bash
-python scripts/helpers/frame_extraction.py --task_folder data/replayed_activities --skip_existing
-```
-
-**Output:** Frames are extracted into `external_sensor1/` subfolder in each task directory:
-```
-replayed_activities/
-├── assembling_gift_baskets_1749468508582193/
-│   ├── external_sensor1.mp4
-│   ├── scene_graph_0.json
-│   └── external_sensor1/              # New: extracted frames
-│       ├── 00001.png
-│       ├── 00002.png
-│       └── ...
-└── bringing_water_1750844141719178/
-    └── ...
-```
-
----
-
-### Stage 2: Segment Activities → `segmented_activities/`
-
-**No simulator required.** This stage processes scene graphs to identify key frames where significant state changes occur (action boundaries), then copies the corresponding frames.
-
-**Input:** 
-- `data/replayed_activities/` with extracted frames (from Stage 1.5)
-- Scene graph JSON files
-
-**Run Segmentation:**
-```bash
-# Basic usage (uses default paths)
-enact segment
-
-# Custom paths
-enact segment data/replayed_activities data/segmented_activities
-
-# Preview before processing
-enact segment --dry-run
-```
-
-**Or Download Official Segmented Data:**
-```bash
-python scripts/helpers/download_dataset.py --segmented
-```
-
-**Output Structure:** `data/segmented_activities/`
-```
-segmented_activities/
-├── assembling_gift_baskets_1749468508582193/
-│   ├── external_sensor1/              # Segmented key frames
-│   │   ├── 00059.png
-│   │   ├── 00705.png
-│   │   ├── 00916.png
-│   │   └── ...                        # 53 key frames total
-│   └── segmented_scene_graph_0.json   # Scene graph with only key frames
-├── canning_food_1751278778230696/
-│   ├── external_sensor1/              # 78 key frames
-│   │   └── ...
-│   └── segmented_scene_graph_0.json
-└── bringing_water_1750844141719178/
-    ├── external_sensor1/              # 15 key frames
-    │   └── ...
-    └── segmented_scene_graph_0.json
-```
-
-**Note:** Each task typically has 15-80 segmented frames representing key action boundaries. For example, `canning_food` has 78 segmented frames, which can generate over 0.5 billion possible 10-step ordering questions.
-
----
-
-### Stage 3: Generate QA Tasks → `QA/enact_ordering.jsonl`
-
-**No simulator required.** This stage samples state transitions from segmented data to create forward and inverse world modeling questions.
-
-**Input:** 
-- `data/segmented_activities/` (from Stage 2 or downloaded)
-- `data/replayed_activities/` (for extracting images)
-
-**Run QA Generation:**
-```bash
-# Basic usage (uses default paths)
-enact qa
-
-# Custom paths
-enact qa data/segmented_activities data/replayed_activities data/QA/enact_ordering.jsonl
-
-# Control sampling
-enact qa --seed 42 --num-to-sample 10
-
-# Preview before generating
-enact qa --dry-run
-```
-
-**Or Download Official QA Dataset:**
-```bash
-python scripts/helpers/download_dataset.py  # Downloads QA by default
-```
-
-**Output:**
-- `data/QA/enact_ordering.jsonl` - 8,972 QA pairs (in our paper's version)
-- `data/QA/images/` - Organized by question type
-
-**Data Generation Scale:**
-For example, a task like `Canning Food` with 78 segmented frames can generate **over 0.5 billion** possible 10-step ordering questions. Our sampling strategy ensures diverse and challenging questions while maintaining computational feasibility.
-
-<details>
-<summary>Example QA entry structure</summary>
-
-Each generated QA instance includes:
-- **Question prompt**: Instructions for the model
-- **Images**: Current state + shuffled future state images
-- **Actions**: Ordered list of state transitions
-- **Ground truth**: Correct ordering of future states
-
-See [Data Evaluation](#data-evaluation) section for detailed format.
-
-</details>
-
----
-
-### Complete Pipeline Examples
-
-**Example 1: Start from raw HDF5 (requires simulator)**
-```bash
-# 1. Install simulator (see Simulator Installation section)
-# 2. Download HDF5 files
-python scripts/helpers/download_dataset.py --hdf5
-# 3. Replay HDF5 in simulator (batch mode)
-bash scripts/helpers/batch_replay_hdf5.sh
-# Or single file:
-# python scripts/helpers/replay_hdf5.py --file data/raw_hdf5/task.hdf5 --output_dir data/replayed_activities
-# 4. Extract frames from videos
-python scripts/helpers/frame_extraction.py --task_folder data/replayed_activities
-# 5. Segment activities
-enact segment
-# 6. Generate QA
-enact qa --seed 42
-```
-
-**Example 2: Start from replayed activities (no simulator needed)**
-```bash
-# 1. Download replayed activities
-python scripts/helpers/download_dataset.py --replayed
-# 2. Extract frames from videos
-python scripts/helpers/frame_extraction.py --task_folder data/replayed_activities
-# 3. Segment activities
-enact segment
-# 4. Generate QA
-enact qa --seed 42
-```
-
-**Example 3: Start from segmented activities (no simulator needed)**
-```bash
-# 1. Download segmented activities and replayed activities (for images)
-python scripts/helpers/download_dataset.py --segmented --replayed
-# 2. Generate QA
-enact qa --seed 42
-```
-
-**Example 4: Only evaluate on official QA dataset (no generation)**
-```bash
-# 1. Download QA dataset (default)
-python scripts/helpers/download_dataset.py
-# 2. Run your model and evaluate
-enact eval your_model_output.jsonl
-```
-
----
-
-## Simulator Installation (Optional)
-
-**Only required if you want to replay HDF5 files (Stage 1).** The BEHAVIOR-1K simulator setup will create its own conda environment with all dependencies including OmniGibson, BDDL, and datasets.
-
-> **⚠️ Important:** If you already created an `enact` conda environment following the earlier steps, but you want to use the simulator later, you may delete your old env and install with the simulator installation script.
-
-### Setup Steps
-
-**1. Initialize BEHAVIOR-1K submodule**
-```bash
-cd ENACT/
-git submodule update --init --recursive
-```
-
-**2. Run BEHAVIOR-1K setup script**
-```bash
-cd BEHAVIOR-1K/
-./setup.sh --new-env --omnigibson --bddl --joylo --dataset
-```
-
-This command will:
-- Create a new conda environment
-- Install OmniGibson simulator
-- Install BDDL (Behavior Domain Definition Language)
-- Download necessary datasets for simulation
-
-**Setup time:** ~30-60 minutes depending on your internet connection and hardware.
-
-### Verify Installation
-
-After setup completes, verify the installation:
-
-**Test 1: Launch Isaac Sim**
-```bash
-conda activate enact
-isaacsim
-```
-This should open the Isaac Sim GUI. Close it after confirming it launches.
-
-**Test 2: Run robot control example**
-```bash
-python OmniGibson/omnigibson/examples/robots/robot_control_example.py
-```
-This should run a simulation with robot control.
-
-### Return to ENACT Environment
-
-After verifying simulator installation, return to the ENACT root directory:
+After fine-tuning, `split_ids.json` is saved in the adapter directory. Use it to evaluate the train and validation splits separately and measure generalization:
 
 ```bash
-cd ..  
-conda activate enact  
-pip install -e .  
+# Validation split only (unseen during training)
+python scripts/inference_hf.py \
+    --adapter ./lora_enact_ordering \
+    --id-file ./lora_enact_ordering/split_ids.json \
+    --split val \
+    --output enact_val.jsonl
+
+# Train split (expect high accuracy = model learned the task)
+python scripts/inference_hf.py \
+    --adapter ./lora_enact_ordering \
+    --id-file ./lora_enact_ordering/split_ids.json \
+    --split train \
+    --output enact_train.jsonl
+
+enact eval enact_val.jsonl
+enact eval enact_train.jsonl
 ```
 
-Now you can proceed with [Stage 1: Replay HDF5](#stage-1-optional-replay-hdf5--replayed_activities) to replay HDF5 files.
+Val accuracy = true generalization. A large train/val gap = overfitting.
 
----
-
-## Additional Commands and Help
-
-### Get Help
-
-```bash
-# General help
-enact --help
-
-# Help for specific subcommands
-enact segment --help
-enact qa --help
-enact eval --help
-```
-
-### Using as a Python Library
-
-You can also import and use ENACT modules in your own Python code:
-
-```python
-from enact.processors import SegmentationProcessor, EvaluatorProcessor
-from enact.core.evaluators import OrderingEvaluator
-
-# Segmentation
-seg_processor = SegmentationProcessor(
-    input_root="data/replayed_activities",
-    output_root="data/segmented_activities"
-)
-seg_processor.process_all_tasks()
-
-# Evaluation
-eval_processor = EvaluatorProcessor(
-    input_path="model_output.jsonl",
-    segmented_data_dir="data/segmented_activities",
-    raw_data_dir="data/replayed_activities",
-    output_root="data/evaluation",
-    analyze_wrong_cases=True
-)
-eval_processor.process_all_files()
-```
+> **Note:** The dev set (`QA_dev`) shares IDs with the training QA file (`QA`), so dev accuracy reflects memorization, not generalization. Use the val split from `split_ids.json` or the held-out test set for true evaluation.
 
 ---
 
 ## Citation
-
-If you use ENACT in your research, please cite:
 
 ```bibtex
 @article{wang2025enact,
@@ -1050,10 +293,4 @@ If you use ENACT in your research, please cite:
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## Acknowledgments
-
-ENACT builds upon the BEHAVIOR simulator.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details. Built upon the [ENACT benchmark](https://enact-embodied-cognition.github.io/).

@@ -15,12 +15,15 @@
 # Data (large, download separately)
 data/
 
-# Model weights and adapters
+# Model weights and adapters (hosted on HuggingFace, not git)
 lora_*/
+enact-lora-weights/
 fused_mlx_model*/
 merged_hf_model/
 *.safetensors
 *.bin
+*.pt
+*.pth
 
 # Inference outputs
 *.jsonl
