@@ -124,7 +124,7 @@ Each line in an `enact_ordering*.jsonl` is one question: an `id`, a list of `ima
 
 ## Fine-Tuning (Linux/GPU)
 
-Tuned for a 32GB GPU (e.g. RTX 5090).
+Tuned for a single A100 40GB GPU.
 
 ```bash
 # Full training run (3 epochs, batch=8, LoRA rank=64)
