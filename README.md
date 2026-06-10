@@ -178,6 +178,8 @@ The script reads **two** path inputs and produces **one** output:
 
 > ⚠️ `--output` opens in **overwrite** (`w`) mode by default — re-running replaces the file. Pass `--resume` to keep existing predictions and continue an interrupted run (it skips IDs already present). On completion the script prints the final `Output:` path and the exact `enact eval …` command to score it.
 
+> ℹ️ **`split_ids.json` is not required for inference.** Just point `--input` at a QA file (e.g. the dev or test set) and the script runs every sample in it. The `--id-file` / `--split` flags are **optional** — use them only to filter the *training* QA file down to a specific subset (e.g. the held-out `val` rows). See [Evaluating Splits](#evaluating-splits).
+
 ### Step-by-step
 
 ```bash
