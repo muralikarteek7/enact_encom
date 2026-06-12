@@ -3,9 +3,11 @@
 <!-- Badges -->
 <div align="center">
 
-[![Homepage](https://img.shields.io/badge/🏠-Homepage-blue.svg)](https://enact-embodied-cognition.github.io/)
-[![arXiv](https://img.shields.io/badge/arXiv-2511.20937-b31b1b?logo=arxiv&logoColor=white)](https://arxiv.org/abs/2511.20937)
-[![Dataset](https://img.shields.io/badge/🤗-Dataset-yellow.svg)](https://huggingface.co/datasets/MLL-Lab/ENACT)
+[![ENACT Homepage](https://img.shields.io/badge/🏠-ENACT%20Homepage-blue.svg)](https://enact-embodied-cognition.github.io/)
+[![ENACT Paper](https://img.shields.io/badge/arXiv-ENACT%20Paper%202511.20937-b31b1b?logo=arxiv&logoColor=white)](https://arxiv.org/abs/2511.20937)
+[![ENACT Dataset](https://img.shields.io/badge/🤗-ENACT%20Dataset-yellow.svg)](https://huggingface.co/datasets/MLL-Lab/ENACT)
+
+*Badges link to the [ENACT benchmark](https://enact-embodied-cognition.github.io/) by Wang et al. This repo is an independent fine-tuning submission, not affiliated with the ENACT authors.*
 
 </div>
 
